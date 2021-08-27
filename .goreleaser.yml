@@ -3,7 +3,7 @@ builds:
 
 release:
   github:
-    owner: owenrumney
+    owner: mugioka
     name: go-github-pr-commenter
 
 changelog:

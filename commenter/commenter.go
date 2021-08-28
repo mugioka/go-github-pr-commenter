@@ -166,9 +166,7 @@ func getCommitInfo(file *github.CommitFile) (*commitFileInfo, error) {
 	groups := patchRegex.FindAllStringSubmatch(file.GetPatch(), -1)
 	var hunkStart, hunkEnd int
 	if len(groups) < 1 {
-		// because EOL change is 2 line changed.
-		// ex. @@ -1 +1 @@
-		if file.GetChanges() <= 2 {
+		if file.GetChanges() >= 1 {
 			hunkStart, hunkEnd = 1, 1
 		} else {
 			return nil, errors.New("the patch details could not be resolved")

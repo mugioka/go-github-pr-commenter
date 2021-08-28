@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	CommenterName = "github-action[bot]"
+	CommenterName = "github-actions[bot]"
 )
 
 type connector struct {

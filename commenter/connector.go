@@ -2,7 +2,10 @@ package commenter
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/go-github/v32/github"
@@ -51,6 +54,75 @@ func newGithubClient(token string) *github.Client {
 	tc := oauth2.NewClient(ctx, ts)
 
 	return github.NewClient(tc)
+}
+
+func (c *connector) getPRInfo() ([]*commitFileInfo, []*existingComment, error) {
+
+	commitFileInfos, err := c.getCommitFileInfo()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	existingComments, err := c.getExistingComments()
+	if err != nil {
+		return nil, nil, err
+	}
+	return commitFileInfos, existingComments, nil
+}
+
+func (c *connector) getCommitFileInfo() ([]*commitFileInfo, error) {
+
+	prFiles, err := c.getFilesForPr()
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		errs            []string
+		commitFileInfos []*commitFileInfo
+	)
+
+	for _, file := range prFiles {
+		info, err := getCommitInfo(file)
+		if err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		commitFileInfos = append(commitFileInfos, info)
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("there were errors processing the PR files.\n%s", strings.Join(errs, "\n"))
+	}
+	return commitFileInfos, nil
+}
+
+func getCommitInfo(file *github.CommitFile) (*commitFileInfo, error) {
+
+	groups := patchRegex.FindAllStringSubmatch(file.GetPatch(), -1)
+	var hunkStart, hunkEnd int
+	if len(groups) < 1 {
+		if file.GetChanges() >= 1 {
+			hunkStart, hunkEnd = 1, 1
+		} else {
+			return nil, errors.New("the patch details could not be resolved")
+		}
+	} else {
+		hunkStart, _ = strconv.Atoi(groups[0][1])
+		hunkEnd, _ = strconv.Atoi(groups[0][2])
+	}
+
+	shaGroups := commitRefRegex.FindAllStringSubmatch(file.GetContentsURL(), -1)
+	if len(shaGroups) < 1 {
+		return nil, errors.New("the sha details could not be resolved")
+	}
+	sha := shaGroups[0][1]
+
+	return &commitFileInfo{
+		FileName:  *file.Filename,
+		hunkStart: hunkStart,
+		hunkEnd:   hunkStart + (hunkEnd - 1),
+		sha:       sha,
+	}, nil
 }
 
 func (c *connector) writeReviewComment(block *github.PullRequestComment, commentId *int64) error {

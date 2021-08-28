@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strconv"
 
 	"github.com/google/go-github/v32/github"
 )
@@ -33,7 +32,7 @@ func NewCommenter(token, owner, repo string, prNumber int) (*Commenter, error) {
 		return nil, err
 	}
 
-	commitFileInfos, existingComments, err := loadPr(ghConnector)
+	commitFileInfos, existingComments, err := ghConnector.getPRInfo()
 	if err != nil {
 		return nil, err
 	}
@@ -43,20 +42,6 @@ func NewCommenter(token, owner, repo string, prNumber int) (*Commenter, error) {
 		existingComments: existingComments,
 		files:            commitFileInfos,
 	}, nil
-}
-
-func loadPr(ghConnector *connector) ([]*commitFileInfo, []*existingComment, error) {
-
-	commitFileInfos, err := getCommitFileInfo(ghConnector)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	existingComments, err := ghConnector.getExistingComments()
-	if err != nil {
-		return nil, nil, err
-	}
-	return commitFileInfos, existingComments, nil
 }
 
 // WriteMultiLineComment writes a multiline review on a file in the github PR
@@ -159,33 +144,4 @@ func buildComment(file, comment string, line int, info commitFileInfo) *github.P
 		Body:     &comment,
 		Position: info.calculatePosition(line),
 	}
-}
-
-func getCommitInfo(file *github.CommitFile) (*commitFileInfo, error) {
-
-	groups := patchRegex.FindAllStringSubmatch(file.GetPatch(), -1)
-	var hunkStart, hunkEnd int
-	if len(groups) < 1 {
-		if file.GetChanges() >= 1 {
-			hunkStart, hunkEnd = 1, 1
-		} else {
-			return nil, errors.New("the patch details could not be resolved")
-		}
-	} else {
-		hunkStart, _ = strconv.Atoi(groups[0][1])
-		hunkEnd, _ = strconv.Atoi(groups[0][2])
-	}
-
-	shaGroups := commitRefRegex.FindAllStringSubmatch(file.GetContentsURL(), -1)
-	if len(shaGroups) < 1 {
-		return nil, errors.New("the sha details could not be resolved")
-	}
-	sha := shaGroups[0][1]
-
-	return &commitFileInfo{
-		FileName:  *file.Filename,
-		hunkStart: hunkStart,
-		hunkEnd:   hunkStart + (hunkEnd - 1),
-		sha:       sha,
-	}, nil
 }

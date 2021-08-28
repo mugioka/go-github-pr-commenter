@@ -117,7 +117,7 @@ func getCommitInfo(file *github.CommitFile) (*CommitFileInfo, error) {
 	sha := shaGroups[0][1]
 
 	return &CommitFileInfo{
-		FileName:  *file.Filename,
+		fileName:  *file.Filename,
 		hunkStart: hunkStart,
 		hunkEnd:   hunkStart + (hunkEnd - 1),
 		sha:       sha,

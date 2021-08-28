@@ -17,17 +17,17 @@ type Commenter struct {
 }
 
 type CommitFileInfo struct {
-	FileName  string
+	fileName  string
 	hunkStart int
 	hunkEnd   int
 	sha       string
 }
 
 type PRReviewComment struct {
-	file      string
-	startLine int
-	endLine   int
-	body      string
+	FileName  string
+	StartLine int
+	EndLine   int
+	Body      string
 }
 
 var (
@@ -69,14 +69,14 @@ func NewCommenter(token, owner, repo string, prNumber int) (*Commenter, error) {
 func (c *Commenter) CreateDraftPRReviewComments(comments []PRReviewComment) []*github.DraftReviewComment {
 	var draftReviewComments []*github.DraftReviewComment
 	for _, comment := range comments {
-		if c.checkCommentRelevant(comment.file, comment.startLine, comment.endLine) {
+		if c.checkCommentRelevant(comment.FileName, comment.StartLine, comment.EndLine) {
 			draftReviewComment := &github.DraftReviewComment{
-				Body: &comment.body,
-				Path: &comment.file,
-				Line: &comment.endLine,
+				Body: &comment.Body,
+				Path: &comment.FileName,
+				Line: &comment.EndLine,
 			}
-			if comment.startLine < comment.endLine {
-				draftReviewComment.StartLine = &comment.startLine
+			if comment.StartLine < comment.EndLine {
+				draftReviewComment.StartLine = &comment.StartLine
 			}
 			draftReviewComments = append(draftReviewComments, draftReviewComment)
 		}
@@ -87,7 +87,7 @@ func (c *Commenter) CreateDraftPRReviewComments(comments []PRReviewComment) []*g
 func (c *Commenter) checkCommentRelevant(filename string, startLine int, endLine int) bool {
 	for _, file := range c.files {
 		if relevant := func(file *CommitFileInfo) bool {
-			if file.FileName == filename {
+			if file.fileName == filename {
 				if startLine >= file.hunkStart && startLine <= file.hunkEnd && endLine >= file.hunkStart && endLine <= file.hunkEnd {
 					return true
 				}

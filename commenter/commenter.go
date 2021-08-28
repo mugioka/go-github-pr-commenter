@@ -1,6 +1,7 @@
 package commenter
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -12,12 +13,33 @@ import (
 type Commenter struct {
 	ghConnector      *connector
 	existingComments []*existingComment
-	files            []*commitFileInfo
+	files            []*CommitFileInfo
+}
+
+type CommitFileInfo struct {
+	FileName  string
+	hunkStart int
+	hunkEnd   int
+	sha       string
+}
+
+type PRReviewComment struct {
+	file      string
+	startLine int
+	endLine   int
+	body      string
 }
 
 var (
 	patchRegex     = regexp.MustCompile(`^@@.*\+(\d+),(\d+).+?@@`)
 	commitRefRegex = regexp.MustCompile(".+ref=(.+)")
+)
+
+const (
+	Approve            = "APPROVE"
+	RequestChanges     = "REQUEST_CHANGES"
+	ApproveBody        = "Approve:tada:"
+	RequestChangesBody = "Request changes:rotating_light:"
 )
 
 // NewCommenter creates a Commenter for updating PR with comments
@@ -44,74 +66,29 @@ func NewCommenter(token, owner, repo string, prNumber int) (*Commenter, error) {
 	}, nil
 }
 
-// WriteMultiLineComment writes a multiline review on a file in the github PR
-func (c *Commenter) WriteMultiLineComment(file, comment string, startLine, endLine int) error {
-
-	if !c.checkCommentRelevant(file, startLine) || !c.checkCommentRelevant(file, endLine) {
-		return newCommentNotValidError(file, startLine)
-	}
-
-	if startLine == endLine {
-		return c.WriteLineComment(file, comment, endLine)
-	}
-
-	info, err := c.getFileInfo(file, endLine)
-	if err != nil {
-		return err
-	}
-
-	prComment := buildComment(file, comment, endLine, *info)
-	prComment.StartLine = &startLine
-	return c.writeCommentIfRequired(prComment)
-}
-
-// WriteLineComment writes a single review line on a file of the github PR
-func (c *Commenter) WriteLineComment(file, comment string, line int) error {
-
-	if !c.checkCommentRelevant(file, line) {
-		return newCommentNotValidError(file, line)
-	}
-
-	info, err := c.getFileInfo(file, line)
-	if err != nil {
-		return err
-	}
-	prComment := buildComment(file, comment, line, *info)
-	return c.writeCommentIfRequired(prComment)
-}
-
-func (c *Commenter) WriteGeneralComment(comment string) error {
-
-	issueComment := &github.IssueComment{
-		Body: &comment,
-	}
-	return c.ghConnector.writeGeneralComment(issueComment)
-}
-
-func (c *Commenter) writeCommentIfRequired(prComment *github.PullRequestComment) error {
-
-	var commentId *int64
-	for _, existing := range c.existingComments {
-		commentId = func(ec *existingComment) *int64 {
-			if *ec.filename == *prComment.Path && *ec.comment == *prComment.Body {
-				return ec.commentId
+func (c *Commenter) CreateDraftPRReviewComments(comments []PRReviewComment) []*github.DraftReviewComment {
+	var draftReviewComments []*github.DraftReviewComment
+	for _, comment := range comments {
+		if c.checkCommentRelevant(comment.file, comment.startLine, comment.endLine) {
+			draftReviewComment := &github.DraftReviewComment{
+				Body: &comment.body,
+				Path: &comment.file,
+				Line: &comment.endLine,
 			}
-			return nil
-		}(existing)
+			if comment.startLine < comment.endLine {
+				draftReviewComment.StartLine = &comment.startLine
+			}
+			draftReviewComments = append(draftReviewComments, draftReviewComment)
+		}
 	}
-
-	if err := c.ghConnector.writeReviewComment(prComment, commentId); err != nil {
-		return fmt.Errorf("write review comment: %w", err)
-	}
-	return nil
+	return draftReviewComments
 }
 
-func (c *Commenter) checkCommentRelevant(filename string, line int) bool {
-
+func (c *Commenter) checkCommentRelevant(filename string, startLine int, endLine int) bool {
 	for _, file := range c.files {
-		if relevant := func(file *commitFileInfo) bool {
+		if relevant := func(file *CommitFileInfo) bool {
 			if file.FileName == filename {
-				if line >= file.hunkStart && line <= file.hunkEnd {
+				if startLine >= file.hunkStart && startLine <= file.hunkEnd && endLine >= file.hunkStart && endLine <= file.hunkEnd {
 					return true
 				}
 			}
@@ -123,25 +100,38 @@ func (c *Commenter) checkCommentRelevant(filename string, line int) bool {
 	return false
 }
 
-func (c *Commenter) getFileInfo(file string, line int) (*commitFileInfo, error) {
+func (c *Commenter) WritePRReview(comments []*github.DraftReviewComment, event string) error {
 
-	for _, info := range c.files {
-		if info.FileName == file {
-			if line >= info.hunkStart && line <= info.hunkEnd {
-				return info, nil
-			}
-		}
+	ctx := context.Background()
+	errs := c.removeAlreadyExistComments(ctx)
+	for _, err := range errs {
+		fmt.Printf("%s\n", err)
 	}
-	return nil, errors.New("file not found, shouldn't have got to here")
+	body, err := selectBodyBy(event)
+	if err != nil {
+		return err
+	}
+	return c.ghConnector.CreatePRReview(ctx, event, body, comments)
 }
 
-func buildComment(file, comment string, line int, info commitFileInfo) *github.PullRequestComment {
+func (c *Commenter) removeAlreadyExistComments(ctx context.Context) []error {
+	var errs []error
+	for _, comment := range c.existingComments {
+		err := c.ghConnector.DeletePRReviewComment(ctx, comment.commentId)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errs
+}
 
-	return &github.PullRequestComment{
-		Line:     &line,
-		Path:     &file,
-		CommitID: &info.sha,
-		Body:     &comment,
-		Position: info.calculatePosition(line),
+func selectBodyBy(event string) (string, error) {
+	switch event {
+	case Approve:
+		return ApproveBody, nil
+	case RequestChanges:
+		return RequestChangesBody, nil
+	default:
+		return "", fmt.Errorf("this event type is not supported")
 	}
 }

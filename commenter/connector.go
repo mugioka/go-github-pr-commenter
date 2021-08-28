@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/go-github/v32/github"
 	"golang.org/x/oauth2"
 )
 
-const githubAbuseErrorRetries = 6
+const (
+	CommenterName = "github-action[bot]"
+)
 
 type connector struct {
 	prs      *github.PullRequestsService
@@ -28,14 +29,12 @@ type existingComment struct {
 	commentId *int64
 }
 
-type commentFn func() (*github.Response, error)
-
 // create github connector and check if supplied pr number exists
 func createConnector(token, owner, repo string, prNumber int) (*connector, error) {
 
 	client := newGithubClient(token)
 	if _, _, err := client.PullRequests.Get(context.Background(), owner, repo, prNumber); err != nil {
-		return nil, newPrDoesNotExistError(owner, repo, prNumber)
+		return nil, newPRDoesNotExistError(owner, repo, prNumber)
 	}
 
 	return &connector{
@@ -56,7 +55,7 @@ func newGithubClient(token string) *github.Client {
 	return github.NewClient(tc)
 }
 
-func (c *connector) getPRInfo() ([]*commitFileInfo, []*existingComment, error) {
+func (c *connector) getPRInfo() ([]*CommitFileInfo, []*existingComment, error) {
 
 	commitFileInfos, err := c.getCommitFileInfo()
 	if err != nil {
@@ -70,7 +69,7 @@ func (c *connector) getPRInfo() ([]*commitFileInfo, []*existingComment, error) {
 	return commitFileInfos, existingComments, nil
 }
 
-func (c *connector) getCommitFileInfo() ([]*commitFileInfo, error) {
+func (c *connector) getCommitFileInfo() ([]*CommitFileInfo, error) {
 
 	prFiles, err := c.getFilesForPr()
 	if err != nil {
@@ -79,7 +78,7 @@ func (c *connector) getCommitFileInfo() ([]*commitFileInfo, error) {
 
 	var (
 		errs            []string
-		commitFileInfos []*commitFileInfo
+		commitFileInfos []*CommitFileInfo
 	)
 
 	for _, file := range prFiles {
@@ -96,7 +95,7 @@ func (c *connector) getCommitFileInfo() ([]*commitFileInfo, error) {
 	return commitFileInfos, nil
 }
 
-func getCommitInfo(file *github.CommitFile) (*commitFileInfo, error) {
+func getCommitInfo(file *github.CommitFile) (*CommitFileInfo, error) {
 
 	groups := patchRegex.FindAllStringSubmatch(file.GetPatch(), -1)
 	var hunkStart, hunkEnd int
@@ -117,7 +116,7 @@ func getCommitInfo(file *github.CommitFile) (*commitFileInfo, error) {
 	}
 	sha := shaGroups[0][1]
 
-	return &commitFileInfo{
+	return &CommitFileInfo{
 		FileName:  *file.Filename,
 		hunkStart: hunkStart,
 		hunkEnd:   hunkStart + (hunkEnd - 1),
@@ -125,50 +124,23 @@ func getCommitInfo(file *github.CommitFile) (*commitFileInfo, error) {
 	}, nil
 }
 
-func (c *connector) writeReviewComment(block *github.PullRequestComment, commentId *int64) error {
-
-	ctx := context.Background()
-	if commentId != nil {
-		if _, err := c.prs.DeleteComment(ctx, c.owner, c.repo, *commentId); err != nil {
-			return fmt.Errorf("delete existing comment %d: %w", *commentId, err)
-		}
+func (c *connector) CreatePRReview(ctx context.Context, event string, body string, comments []*github.DraftReviewComment) error {
+	review := &github.PullRequestReviewRequest{
+		Body:     &body,
+		Event:    &event,
+		Comments: comments,
 	}
-
-	writeReviewCommentFn := func() (*github.Response, error) {
-		_, resp, err := c.prs.CreateComment(ctx, c.owner, c.repo, c.prNumber, block)
-		return resp, err
+	if _, _, err := c.prs.CreateReview(ctx, c.owner, c.repo, c.prNumber, review); err != nil {
+		return err
 	}
-	return writeCommentWithRetries(c.owner, c.repo, c.prNumber, writeReviewCommentFn)
+	return nil
 }
 
-func (c *connector) writeGeneralComment(comment *github.IssueComment) error {
-
-	ctx := context.Background()
-	writeReviewCommentFn := func() (*github.Response, error) {
-		_, resp, err := c.comments.CreateComment(ctx, c.owner, c.repo, c.prNumber, comment)
-		return resp, err
+func (c *connector) DeletePRReviewComment(ctx context.Context, commentID *int64) error {
+	if _, err := c.prs.DeleteComment(ctx, c.owner, c.repo, *commentID); err != nil {
+		return fmt.Errorf("delete existing comment %d: %w", *commentID, err)
 	}
-	return writeCommentWithRetries(c.owner, c.repo, c.prNumber, writeReviewCommentFn)
-}
-
-func writeCommentWithRetries(owner, repo string, prNumber int, commentFn commentFn) error {
-
-	var abuseError AbuseRateLimitError
-	for i := 0; i < githubAbuseErrorRetries; i++ {
-
-		retrySeconds := i * i
-		time.Sleep(time.Second * time.Duration(retrySeconds))
-
-		if resp, err := commentFn(); err != nil {
-			if resp != nil && resp.StatusCode == 422 {
-				abuseError = newAbuseRateLimitError(owner, repo, prNumber, retrySeconds)
-				continue
-			}
-			return fmt.Errorf("write comment: %v", err)
-		}
-		return nil
-	}
-	return abuseError
+	return nil
 }
 
 func (c *connector) getFilesForPr() ([]*github.CommitFile, error) {
@@ -197,11 +169,13 @@ func (c *connector) getExistingComments() ([]*existingComment, error) {
 
 	var existingComments []*existingComment
 	for _, comment := range comments {
-		existingComments = append(existingComments, &existingComment{
-			filename:  comment.Path,
-			comment:   comment.Body,
-			commentId: comment.ID,
-		})
+		if CommenterName == *comment.User.Login {
+			existingComments = append(existingComments, &existingComment{
+				filename:  comment.Path,
+				comment:   comment.Body,
+				commentId: comment.ID,
+			})
+		}
 	}
 	return existingComments, nil
 }

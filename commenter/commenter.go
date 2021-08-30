@@ -68,7 +68,8 @@ func NewCommenter(token, owner, repo string, prNumber int) (*Commenter, error) {
 
 func (c *Commenter) CreateDraftPRReviewComments(comments []PRReviewComment) []*github.DraftReviewComment {
 	var draftReviewComments []*github.DraftReviewComment
-	for _, comment := range comments {
+	for i := range comments {
+		comment := comments[i]
 		if c.checkCommentRelevant(comment.FileName, comment.StartLine, comment.EndLine) {
 			reviewCommentSide := "RIGHT"
 			draftReviewComment := &github.DraftReviewComment{
@@ -88,27 +89,9 @@ func (c *Commenter) CreateDraftPRReviewComments(comments []PRReviewComment) []*g
 	return draftReviewComments
 }
 
-func (cfi CommitFileInfo) calculatePosition(commentLine int) *int {
-	var position int
-	if cfi.hunkStartLine == commentLine {
-		position = 1
-	} else {
-		position = commentLine - cfi.hunkStartLine
-	}
-
-	return &position
-}
-
 func (c *Commenter) checkCommentRelevant(filename string, startLine int, endLine int) bool {
 	for _, file := range c.files {
-		if relevant := func(file *CommitFileInfo) bool {
-			if file.fileName == filename {
-				if startLine >= file.hunkStartLine && startLine <= file.hunkEndLine && endLine >= file.hunkStartLine && endLine <= file.hunkEndLine {
-					return true
-				}
-			}
-			return false
-		}(file); relevant {
+		if file.fileName == filename && startLine >= file.hunkStartLine && startLine <= file.hunkEndLine && endLine >= file.hunkStartLine && endLine <= file.hunkEndLine {
 			return true
 		}
 	}

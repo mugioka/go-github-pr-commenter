@@ -17,10 +17,10 @@ type Commenter struct {
 }
 
 type CommitFileInfo struct {
-	fileName  string
-	hunkStart int
-	hunkEnd   int
-	sha       string
+	fileName      string
+	hunkStartLine int
+	hunkEndLine   int
+	sha           string
 }
 
 type PRReviewComment struct {
@@ -70,13 +70,17 @@ func (c *Commenter) CreateDraftPRReviewComments(comments []PRReviewComment) []*g
 	var draftReviewComments []*github.DraftReviewComment
 	for _, comment := range comments {
 		if c.checkCommentRelevant(comment.FileName, comment.StartLine, comment.EndLine) {
+			reviewCommentSide := "RIGHT"
 			draftReviewComment := &github.DraftReviewComment{
 				Body: &comment.Body,
 				Path: &comment.FileName,
 				Line: &comment.EndLine,
+				Side: &reviewCommentSide,
 			}
 			if comment.StartLine < comment.EndLine {
+				reviewCommentStartSide := "RIGHT"
 				draftReviewComment.StartLine = &comment.StartLine
+				draftReviewComment.StartSide = &reviewCommentStartSide
 			}
 			draftReviewComments = append(draftReviewComments, draftReviewComment)
 		}
@@ -88,7 +92,7 @@ func (c *Commenter) checkCommentRelevant(filename string, startLine int, endLine
 	for _, file := range c.files {
 		if relevant := func(file *CommitFileInfo) bool {
 			if file.fileName == filename {
-				if startLine >= file.hunkStart && startLine <= file.hunkEnd && endLine >= file.hunkStart && endLine <= file.hunkEnd {
+				if startLine >= file.hunkStartLine && startLine <= file.hunkEndLine && endLine >= file.hunkStartLine && endLine <= file.hunkEndLine {
 					return true
 				}
 			}

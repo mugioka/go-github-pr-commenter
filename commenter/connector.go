@@ -131,6 +131,7 @@ func (c *connector) CreatePRReview(ctx context.Context, event string, body strin
 		Comments: comments,
 	}
 	if _, _, err := c.prs.CreateReview(ctx, c.owner, c.repo, c.prNumber, review); err != nil {
+		fmt.Println(&comments)
 		return err
 	}
 	return nil

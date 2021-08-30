@@ -126,7 +126,8 @@ func (c *Commenter) WritePRReview(comments []*github.DraftReviewComment, event s
 	if err != nil {
 		return err
 	}
-	return c.ghConnector.CreatePRReview(ctx, event, body, comments)
+	err = c.ghConnector.CreatePRReview(ctx, event, body, comments)
+	return err
 }
 
 func (c *Commenter) removeAlreadyExistComments(ctx context.Context) []error {

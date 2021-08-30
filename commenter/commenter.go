@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v38/github"
 )
 
 // Commenter is the main commenter struct

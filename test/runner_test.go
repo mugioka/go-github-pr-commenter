@@ -3,10 +3,11 @@ package test
 import (
 	"context"
 	"fmt"
-	"github.com/google/go-github/v32/github"
-	"golang.org/x/oauth2"
 	"os"
 	"testing"
+
+	"github.com/google/go-github/v38/github"
+	"golang.org/x/oauth2"
 )
 
 var client *github.Client

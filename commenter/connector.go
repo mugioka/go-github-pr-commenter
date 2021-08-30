@@ -57,7 +57,7 @@ func newGithubClient(token string) *github.Client {
 
 func (c *connector) getPRInfo() ([]*CommitFileInfo, []*existingComment, error) {
 
-	commitFileInfos, err := c.getCommitFileInfo()
+	commitFileInfos, err := c.getCommitFileInfos()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -69,7 +69,7 @@ func (c *connector) getPRInfo() ([]*CommitFileInfo, []*existingComment, error) {
 	return commitFileInfos, existingComments, nil
 }
 
-func (c *connector) getCommitFileInfo() ([]*CommitFileInfo, error) {
+func (c *connector) getCommitFileInfos() ([]*CommitFileInfo, error) {
 
 	prFiles, err := c.getFilesForPr()
 	if err != nil {
@@ -117,10 +117,10 @@ func getCommitInfo(file *github.CommitFile) (*CommitFileInfo, error) {
 	sha := shaGroups[0][1]
 
 	return &CommitFileInfo{
-		fileName:  *file.Filename,
-		hunkStart: hunkStart,
-		hunkEnd:   hunkStart + (hunkEnd - 1),
-		sha:       sha,
+		fileName:      *file.Filename,
+		hunkStartLine: hunkStart,
+		hunkEndLine:   hunkStart + (hunkEnd - 1),
+		sha:           sha,
 	}, nil
 }
 
